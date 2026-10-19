@@ -1,0 +1,24 @@
+syntax = "proto3";
+package platform.events.v1;
+
+option go_package = "github.com/fin/multi-agent-rag/internal/events/eventspb;eventspb";
+
+// Envelope is carried by every event on every topic.
+message Envelope {
+  string event_id        = 1;
+  string run_id          = 2;
+  string type            = 3;  // e.g. "stage.completed.developer"
+  int32  version         = 4;
+  string occurred_at     = 5;  // RFC3339
+  string trace_id        = 6;  // W3C traceparent
+  string span_id         = 7;
+  string producer        = 8;  // service name
+  string idempotency_key = 9;  // run_id + stage + attempt
+}
+
+// Event is the Kafka record value: envelope + an opaque marshaled payload
+// (a stage artifact or event-specific proto).
+message Event {
+  Envelope envelope = 1;
+  bytes    payload  = 2;
+}

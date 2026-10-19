@@ -1,0 +1,1 @@
+{"role":"requirement-analyzer","name":"trivial-classify","spec":"fix a typo in the README","reply":"{\"summary\":\"typo fix\",\"preliminary_complexity\":\"trivial\",\"affected_repos\":[\"docs\"],\"key_requirements\":[\"fix typo\"]}","expect_fields":{"preliminary_complexity":"trivial"}}

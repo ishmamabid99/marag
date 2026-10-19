@@ -1,0 +1,1 @@
+{"role":"system-designer","name":"one-file","spec":"add a health endpoint","reply":"{\"file_changes\":[{\"file_path\":\"api/health.go\",\"repo_id\":\"api\",\"change_type\":\"create\",\"description\":\"health handler\",\"complexity_hint\":\"trivial\"}],\"test_cases\":[],\"implementation_order\":\"add handler\",\"edge_cases\":[]}","expect_fields":{}}

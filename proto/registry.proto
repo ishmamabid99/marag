@@ -1,0 +1,56 @@
+syntax = "proto3";
+package platform.registry.v1;
+
+option go_package = "github.com/fin/multi-agent-rag/internal/registry/registrypb;registrypb";
+
+// Repo mirrors models.Repo on the wire.
+message Repo {
+  string id                = 1;
+  string name              = 2;
+  string provider          = 3;  // "github" | "gitlab"
+  string remote_url        = 4;
+  string default_branch    = 5;
+  string embedding_model   = 6;
+  int32  embedding_dim     = 7;
+  int32  active_version    = 8;
+  map<string, string> labels = 9;
+  int32  commits_behind    = 10;
+  string last_ingested_at  = 11; // RFC3339, empty if never
+  string last_heartbeat_at = 12; // RFC3339, empty if never
+  bool   stale             = 13; // derived
+}
+
+message RegisterRequest  { Repo repo = 1; }
+message RegisterResponse { Repo repo = 1; }
+
+message GetRepoRequest  { string id = 1; }
+message GetRepoResponse { Repo repo = 1; }
+
+message ListReposRequest {
+  string provider = 1;   // optional filter
+  map<string, string> labels = 2;
+  bool   stale_only = 3;
+}
+message ListReposResponse { repeated Repo repos = 1; }
+
+message HeartbeatRequest  { string id = 1; }
+message HeartbeatResponse {}
+
+message MarkIngestedRequest {
+  string id             = 1;
+  int32  commits_behind = 2;
+  int32  active_version = 3;
+}
+message MarkIngestedResponse {}
+
+message DeregisterRequest  { string id = 1; }
+message DeregisterResponse {}
+
+service RegistryService {
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc GetRepo(GetRepoRequest) returns (GetRepoResponse);
+  rpc ListRepos(ListReposRequest) returns (ListReposResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  rpc MarkIngested(MarkIngestedRequest) returns (MarkIngestedResponse);
+  rpc Deregister(DeregisterRequest) returns (DeregisterResponse);
+}

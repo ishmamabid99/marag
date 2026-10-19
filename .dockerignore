@@ -1,0 +1,25 @@
+# Applied to the repo-root build context (deploy/Dockerfile builds from here).
+.git
+.github
+.superpowers
+.claude
+docs
+deploy
+bin
+*.md
+
+# Local credential files — must NEVER enter an image layer (mirrors the
+# ingestion IsSecretFile exclusion). config.json (the empty scaffold) is kept
+# because the runtime bakes it as the non-secret fallback.
+config.local.json
+**/config.local.json
+*.local.json
+**/*.local.json
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519

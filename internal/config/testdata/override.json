@@ -1,0 +1,1 @@
+{"database":{"url":"postgres://u:p@db:5432/x"},"kafka":{"brokers":["broker:9092"],"username":"ku"},"git":{"github_token":"ght"},"worker":{"developer_backend":"ma","fake_llm":true},"linear":{"api_key":"lk"},"anthropic":{"provider":"vertex","model_overrides":{"claude-sonnet-5":"claude-sonnet-4-5@x"}}}

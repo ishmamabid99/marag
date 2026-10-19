@@ -1,0 +1,213 @@
+# One-command self-host for the multi-agent-rag platform.
+#
+#   docker compose -f deploy/docker-compose.yml up --build
+#
+# ALL app config + secrets come from Consul KV, not from this file or the
+# shell environment. On `up`, a one-shot `consul-seed` service PUTs the
+# repo's `config.json` (baked into the image at /app/config.json, and bind
+# -mounted read-only into the seeder) into a dev-mode Consul KV store under
+# key "multi-agent-rag". Each app service sets only three bootstrap env vars
+# (CONSUL=true, CONSUL_URL=consul:8500, CONSUL_PATH=multi-agent-rag) and reads
+# everything else -- DB/Kafka addresses, LLM + git-hosting + Linear API
+# credentials, embedder/reranker URLs, the fake-LLM toggle, etc. -- from that
+# KV blob at startup. App services depend on consul-seed completing
+# successfully, so nothing starts against a half-seeded store.
+#
+# config.json ships with fake_llm=true and empty secrets, so the default
+# `up` is still a keyless demo (fake LLM + fake embedder/reranker). To run
+# for real: edit `config.json` (set real keys, flip fake_llm) BEFORE
+# `docker compose up`, or -- against an already-running stack -- reseed with
+# `docker compose -f deploy/docker-compose.yml exec consul \
+#     consul kv put multi-agent-rag @/seed/config.json`
+# (or `consul kv put multi-agent-rag @config.json` from the host if you have
+# the consul CLI) and restart the app services so they re-read it.
+# Do NOT put secrets in this compose file or in shell/.env vars -- Consul KV
+# (sourced from config.json) is the only place app config/secrets live.
+#
+# Datastores: postgres (pgvector), consul (dev), and kafka -- Confluent
+# cp-kafka in KRaft mode with SASL_PLAINTEXT/PLAIN. The broker's dev SASL
+# creds are its own bootstrap (like POSTGRES_PASSWORD); the app's matching
+# client creds live in config.json -> Consul (kafka.username/password).
+#
+# Long-running services below: registry (gRPC), orchestrator, worker,
+# git-publisher, linear-gateway (HTTP :8080).
+# NOT run as daemons (build into the image, run on demand):
+#   - mcp-gateway    : stdio MCP server, launched by a Claude client:
+#       claude mcp add fin-context -- docker compose -f deploy/docker-compose.yml run --rm mcp
+#   - ingestion-worker / retrieval-gateway : one-shot CLIs, run via `docker compose run`.
+
+name: multi-agent-rag
+
+x-app: &app
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile
+  image: marag:local
+  restart: unless-stopped
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  depends_on:
+    postgres:
+      condition: service_healthy
+    kafka:
+      condition: service_healthy
+    consul-seed:
+      condition: service_completed_successfully
+x-consul-env: &consul-env
+  CONSUL: "true"
+  CONSUL_URL: "consul:8500"
+  CONSUL_PATH: "multi-agent-rag"
+
+services:
+  consul:
+    image: hashicorp/consul:1.19
+    command: ["agent", "-dev", "-client=0.0.0.0", "-log-level=warn"]
+    healthcheck:
+      test: ["CMD", "consul", "members"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    # Internal-only (services reach it as consul:8500 on the compose network).
+    # Uncomment to expose the UI for inspection: ports: ["8500:8500"]
+
+  # One-shot: PUTs the repo's config.json into Consul KV at key
+  # "multi-agent-rag", then exits 0. App services wait on this succeeding.
+  consul-seed:
+    image: hashicorp/consul:1.19
+    restart: "no"
+    depends_on:
+      consul:
+        condition: service_healthy
+    volumes:
+      - ../config.json:/seed/config.json:ro
+    command: ["kv", "put", "-http-addr=http://consul:8500", "multi-agent-rag", "@/seed/config.json"]
+
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: marag
+      POSTGRES_PASSWORD: marag
+      POSTGRES_DB: marag
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Pre-create the pgvector extension once (before services connect) so their
+      # own CREATE EXTENSION IF NOT EXISTS is a race-free no-op.
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U marag -d marag"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Exposed on host 5433 for local inspection (TablePlus/psql/DBeaver).
+    # Services still reach it as postgres:5432 on the compose network.
+    ports:
+      - "5433:5432"
+
+  # Apache Kafka (Confluent cp-kafka), KRaft mode, SASL_PLAINTEXT/PLAIN.
+  # The broker's own dev SASL creds (marag) are datastore bootstrap creds,
+  # like POSTGRES_PASSWORD above. App services get their matching client
+  # creds from Consul (config.json kafka.username/password).
+  kafka:
+    image: confluentinc/cp-kafka:7.7.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_LISTENERS: "INTERNAL://:9092,CONTROLLER://:9093"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:SASL_PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "INTERNAL"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_SASL_ENABLED_MECHANISMS: "PLAIN"
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: "PLAIN"
+      KAFKA_LISTENER_NAME_INTERNAL_PLAIN_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.plain.PlainLoginModule required username="marag" password="marag" user_marag="marag";'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/9092' 2>/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    # Internal-only (services reach it as kafka:9092 on the compose network).
+
+  # Real cross-encoder reranker: Infinity serving BAAI/bge-reranker-base.
+  # Multi-arch (runs natively on arm64/Apple Silicon — unlike TEI which is
+  # amd64-only and stalls under emulation). Profile-gated (`--profile reranker`);
+  # first start downloads the model (~1.1GB) into rerank-cache. Serves on :7997.
+  # Point config at http://reranker:7997 (kind=infinity).
+  reranker:
+    image: michaelf34/infinity:latest
+    profiles: ["reranker"]
+    command: ["v2", "--model-id", "BAAI/bge-reranker-base", "--port", "7997"]
+    volumes:
+      - rerank-cache:/app/.cache
+    # Internal-only (services reach it as reranker:7997 on the compose network).
+
+  registry:
+    <<: *app
+    command: ["/app/registry"]
+    environment:
+      <<: *consul-env
+    # Internal-only (services reach it as registry:50051 on the compose network).
+    # Uncomment to expose: ports: ["50051:50051"]
+
+  orchestrator:
+    <<: *app
+    command: ["/app/orchestrator"]
+    environment:
+      <<: *consul-env
+
+  worker:
+    <<: *app
+    command: ["/app/worker"]
+    environment:
+      <<: *consul-env
+
+  git-publisher:
+    <<: *app
+    command: ["/app/git-publisher"]
+    environment:
+      <<: *consul-env
+
+  # Opt-in entry point: requires real Linear credentials (webhook signing
+  # secret + API key) in the seeded Consul config, so it's profile-gated out
+  # of the keyless default `up`.
+  # Enable with: docker compose --profile linear up  (after seeding real Linear
+  # creds via config.json -> Consul)
+  linear-gateway:
+    <<: *app
+    command: ["/app/linear-gateway"]
+    profiles: ["linear"]
+    environment:
+      <<: *consul-env
+    # The only externally-published port (Linear posts webhooks here). Override
+    # the host port if 8080 is taken: LINEAR_HOST_PORT=18080.
+    ports:
+      - "${LINEAR_HOST_PORT:-8080}:8080"
+
+  # stdio MCP server — not a daemon. Requires a per-user token (deny-by-default:
+  # without a valid MARAG_MCP_TOKEN every tool call is refused). The token is a
+  # per-caller credential supplied at launch (NOT in the Consul config below).
+  #   Mint one:  docker compose -f deploy/docker-compose.yml run --rm --entrypoint /app/mcp-admin mcp create <name>
+  #     (add -ttl 720h before <name> to expire it in 30 days; omit = never)
+  #   List:      docker compose -f deploy/docker-compose.yml run --rm --entrypoint /app/mcp-admin mcp list
+  #   Revoke:    docker compose -f deploy/docker-compose.yml run --rm --entrypoint /app/mcp-admin mcp revoke <name>
+  #   Run:       docker compose -f deploy/docker-compose.yml run --rm -e MARAG_MCP_TOKEN=<token> mcp
+  #   Claude Code: claude mcp add fin-context --env MARAG_MCP_TOKEN=<token> -- \
+  #                  docker compose -f deploy/docker-compose.yml run --rm mcp
+  mcp:
+    <<: *app
+    command: ["/app/mcp-gateway"]
+    restart: "no"
+    profiles: ["tools"]
+    # Only the Consul bootstrap here; MARAG_MCP_TOKEN is passed per-invocation.
+    environment:
+      <<: *consul-env
+
+volumes:
+  pgdata:
+  rerank-cache:

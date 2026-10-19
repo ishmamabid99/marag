@@ -1,0 +1,1 @@
+{"role":"viability-checker","name":"feasible-standard","spec":"add pagination to the list endpoint","reply":"{\"feasible\":true,\"confirmed_complexity\":\"standard\",\"feasibility_rationale\":\"localized\",\"risks_identified\":[],\"constraints\":[]}","expect_fields":{"feasible":true,"confirmed_complexity":"standard"}}

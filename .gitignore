@@ -1,0 +1,45 @@
+# Binaries
+/bin/
+*.exe
+*.test
+*.out
+
+# Go
+vendor/
+go.work
+go.work.sum
+
+# Env / secrets
+.env
+*.local
+
+# OS
+.DS_Store
+
+# Filled-in real-run config with live secrets — never commit
+config.local.json
+
+# stray binaries from `go build ./cmd/<x>/` in repo root
+/llm-probe
+/mcp-admin
+/register
+/submit
+/worker
+/git-publisher
+/orchestrator
+/registry
+/ingestion-worker
+/retrieval-gateway
+/mcp-gateway
+config.json
+config.real-run.example.json
+.superpowers
+.code-review-graph
+.claude
+redemption.md
+deploy/
+design/
+docs/
+.gitlab-ci.yml
+CLAUDE.md
+venv/

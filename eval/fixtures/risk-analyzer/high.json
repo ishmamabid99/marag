@@ -1,0 +1,1 @@
+{"role":"risk-analyzer","name":"high-blast","spec":"change the auth token format","reply":"{\"blast_radius\":\"high\",\"affected_flows\":[],\"breaking_risks\":[\"invalidates sessions\"],\"gate_recommended\":true,\"gate_reason\":\"auth change\"}","expect_fields":{"blast_radius":"high","gate_recommended":true}}

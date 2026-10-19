@@ -1,0 +1,1 @@
+{"role":"qa","name":"spec-compliant","spec":"add Add(a,b)","prior_artifacts":{"developing":{"summary":"added Add","files_changed":["calc.go"],"tests_passed":true}},"reply":"{\"qa_passed\":true,\"issues\":[],\"rationale\":\"matches\"}","expect_fields":{"qa_passed":true}}

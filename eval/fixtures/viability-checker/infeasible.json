@@ -1,0 +1,1 @@
+{"role":"viability-checker","name":"infeasible","spec":"depend on a service that does not exist","reply":"{\"feasible\":false,\"confirmed_complexity\":\"complex\",\"feasibility_rationale\":\"missing dependency\"}","expect_error":true}
